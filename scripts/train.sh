@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # get args
-GPUS=${1:-8}
+GPUS=${1:-1}
 
 # get root dir
 FOLDER_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -14,15 +14,15 @@ cd $ROOT_DIR
 COLLATED_VIDEO_DIR=./dataset/MSRVTT-collated/train/videos
 PROCESSED_DATASET=(
     ./dataset/MSRVTT-processed/train/part-00000
-    ./dataset/MSRVTT-processed/train/part-00001
-    ./dataset/MSRVTT-processed/train/part-00002
-    ./dataset/MSRVTT-processed/train/part-00003
-    ./dataset/MSRVTT-processed/train/part-00004
-    ./dataset/MSRVTT-processed/train/part-00005
-    ./dataset/MSRVTT-processed/train/part-00006
-    ./dataset/MSRVTT-processed/train/part-00007
-    ./dataset/MSRVTT-processed/train/part-00008
-    ./dataset/MSRVTT-processed/train/part-00009
+    # ./dataset/MSRVTT-processed/train/part-00001
+    # ./dataset/MSRVTT-processed/train/part-00002
+    # ./dataset/MSRVTT-processed/train/part-00003
+    # ./dataset/MSRVTT-processed/train/part-00004
+    # ./dataset/MSRVTT-processed/train/part-00005
+    # ./dataset/MSRVTT-processed/train/part-00006
+    # ./dataset/MSRVTT-processed/train/part-00007
+    # ./dataset/MSRVTT-processed/train/part-00008
+    # ./dataset/MSRVTT-processed/train/part-00009
 )
 
 # create timestamp to differentiate between runs

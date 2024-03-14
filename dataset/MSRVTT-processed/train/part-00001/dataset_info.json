@@ -1,0 +1,48 @@
+{
+  "builder_name": "json",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "json",
+  "dataset_size": 1393,
+  "description": "",
+  "download_checksums": {
+    "/lc/Open-Sora/./dataset/MSRVTT-collated/train/annotations.json": {
+      "num_bytes": 2755,
+      "checksum": null
+    }
+  },
+  "download_size": 2755,
+  "features": {
+    "video_file": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "text_latent_states": {
+      "feature": {
+        "feature": {
+          "dtype": "float32",
+          "_type": "Value"
+        },
+        "_type": "Sequence"
+      },
+      "_type": "Sequence"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 4148,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 1393,
+      "num_examples": 20,
+      "dataset_name": "json"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}
