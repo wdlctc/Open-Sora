@@ -8,6 +8,66 @@ from colossalai.shardformer.layer._operation import gather_forward_split_backwar
 from torch.distributed.distributed_c10d import get_global_rank
 
 
+def _reduce_scatter(
+    input_: torch.Tensor,
+    world_size: int,
+    group: dist.ProcessGroup,
+    scatter_dim: int,
+    gather_dim: int,
+):
+    input_list = [
+        t.contiguous() for t in torch.tensor_split(input_, world_size, scatter_dim)
+    ]
+    output = torch.empty_like(input_list[0])
+    dist.reduce_scatter(output, input_list, group=group)
+    return output
+
+
+class _ReduceScatter(torch.autograd.Function):
+    """All-to-all communication.
+
+    Args:
+        input_: input matrix
+        process_group: communication group
+        scatter_dim: scatter dimension
+        gather_dim: gather dimension
+    """
+
+    @staticmethod
+    def forward(ctx, input_, process_group, scatter_dim, gather_dim):
+        ctx.process_group = process_group
+        ctx.scatter_dim = scatter_dim
+        ctx.gather_dim = gather_dim
+        ctx.world_size = dist.get_world_size(process_group)
+        return _reduce_scatter(
+            input_, ctx.world_size, process_group, scatter_dim, gather_dim
+        )
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return (
+            _reduce_scatter(
+                grad_output,
+                ctx.world_size,
+                ctx.process_group,
+                ctx.gather_dim,
+                ctx.scatter_dim,
+            ),
+            None,
+            None,
+            None,
+        )
+
+
+def reduce_scatter(
+    input_: torch.Tensor,
+    process_group: dist.ProcessGroup,
+    scatter_dim: int = 2,
+    gather_dim: int = 1,
+):
+    return _ReduceScatter.apply(input_, process_group, scatter_dim, gather_dim)
+
+
 def _all_to_all(
     input_: torch.Tensor,
     world_size: int,
