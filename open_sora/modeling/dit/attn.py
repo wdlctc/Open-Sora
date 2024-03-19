@@ -387,23 +387,14 @@ class FasterSeqParallelCrossAttention(FastSeqParallelCrossAttention):
         attn_output = attn_output.reshape(bsz, q_len, hidden_size_parallel)
         # [B, S, H/P] -> [B, S/P, H]
 
-        if self.seq_parallel_size > 1:
-            attn_output_list = asyncalltoall(attn_output, self.seq_parallel_group, scatter_dim=1, gather_dim=2)
-
-        for i in range(self.seq_parallel_size):
-            index = (self.seq_parallel_rank + i) % self.seq_parallel_size
-            cur_slice = slice(
+        index = self.seq_parallel_rank
+        cur_slice = slice(
                 self.hidden_size // self.seq_parallel_size * index,
                 self.hidden_size // self.seq_parallel_size * (index + 1),
             )
-
-            if i == 0:
-                output_parallel = self._outproj(attn_output_list[index], cur_slice, self.to_out)
-            else:
-                attn_output.handle.wait()
-                output_parallel = output_parallel + self._outproj(attn_output_list[index], cur_slice, self.to_out)
-                # print('second ',output_parallel,attn_output_list[index])
-        attn_output = output_parallel + self.to_out[0].bias
+        attn_output = self._outproj(attn_output, cur_slice, self.to_out)
+        attn_output = reduce_scatter(attn_output, self.seq_parallel_group, scatter_dim=1, gather_dim=1)
+        attn_output = attn_output + self.to_out[0].bias
         attn_output = self.to_out[1](attn_output)
         return attn_output
 
