@@ -54,7 +54,7 @@ def benchmark_attention(attention_module, x, num_iterations=100):
     start_time = time.time()
     for _ in range(num_iterations):
         out = attention_module(x)
-        # out.backward(torch.ones_like(out))
+        out.backward(torch.ones_like(out))
     torch.cuda.synchronize()
     end_time = time.time()
     return (end_time - start_time) / num_iterations
@@ -80,7 +80,7 @@ def benchmark_fsdp(rank, args, world_size):
     faster_seq_parallel_attention = FasterSeqParallelCrossAttention(256, seq_parallel_group=dist.group.WORLD).cuda()
     
     torch.manual_seed(1024)
-    x = torch.randn(1, 100000, 256).cuda()
+    x = torch.randn(8, 10000, 256).cuda()
 
     seq_x = x.clone().detach()
 
@@ -90,7 +90,7 @@ def benchmark_fsdp(rank, args, world_size):
     seq_x.retain_grad()
 
     
-    x_list = torch.split(x, 50000, dim=1)
+    x_list = torch.split(x, 5000, dim=1)
     sub_seq_x = x_list[rank]
 
     print(x.shape, sub_seq_x.shape)
@@ -105,10 +105,8 @@ def benchmark_fsdp(rank, args, world_size):
     seq_out = _gather(sub_seq_out, dim=1)
 
     print(out.shape, sub_seq_out.shape)
-
-    # for i in range(5000):
-    #     print(i)
-    #     assert torch.allclose(seq_out[0,i,:], out[0,i,:], atol=1e-7), f"{seq_out[0,i,:]}\nvs\n{out[0,i,:]}\nvs\n{seq_out[0,i,:]-out[0,i,:]}"
+    
+    assert torch.allclose(seq_out, out, atol=1e-7), f"{seq_out}\nvs\n{out}"
 
     # # all reduce gradient for sp
     # for p in faster_seq_parallel_attention.parameters():
@@ -117,7 +115,7 @@ def benchmark_fsdp(rank, args, world_size):
     #         p.grad.div_(world_size)
 
     # Benchmark attention modules
-    num_iterations = 10
+    num_iterations = 100
     cross_attention_time = benchmark_attention(attention, x, num_iterations)
     seq_parallel_attention_time = benchmark_attention(seq_parallel_attention, sub_seq_x, num_iterations)
     fast_seq_parallel_attention_time = benchmark_attention(fast_seq_parallel_attention, sub_seq_x, num_iterations)

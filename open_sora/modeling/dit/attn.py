@@ -387,7 +387,6 @@ class FasterSeqParallelCrossAttention(FastSeqParallelCrossAttention):
         attn_output = attn_output.reshape(bsz, q_len, hidden_size_parallel)
         # [B, S, H/P] -> [B, S/P, H]
 
-        t = torch.tensor_split(attn_output, self.seq_parallel_size, 1)[self.seq_parallel_rank]
         if self.seq_parallel_size > 1:
             attn_output_list = asyncalltoall(attn_output, self.seq_parallel_group, scatter_dim=1, gather_dim=2)
 
