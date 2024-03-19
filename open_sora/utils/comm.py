@@ -4,8 +4,68 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from colossalai.moe._operation import MoeInGradScaler, MoeOutGradScaler
-from colossalai.shardformer.layer._operation import gather_forward_split_backward
+from colossalai.shardformer.layer._operation import gather_forward_split_backward, split_forward_gather_backward
 from torch.distributed.distributed_c10d import get_global_rank
+
+def _all_to_all_async(
+    input_: torch.Tensor,
+    world_size: int,
+    group: dist.ProcessGroup,
+    scatter_dim: int,
+    gather_dim: int,
+):
+    input_list = [
+        t.contiguous() for t in torch.tensor_split(input_, world_size, scatter_dim)
+    ]
+    output_list = [torch.empty_like(input_list[i]) for i in range(world_size)]
+    handle = dist.all_to_all(output_list, input_list, group=group, async_op=True)
+    input_.handle = handle
+    return output_list
+
+class _asyncalltoall(torch.autograd.Function):
+    """All-to-all communication.
+
+    Args:
+        input_: input matrix
+        process_group: communication group
+        scatter_dim: scatter dimension
+        gather_dim: gather dimension
+    """
+
+    @staticmethod
+    def forward(ctx, input_, process_group, scatter_dim, gather_dim):
+        ctx.process_group = process_group
+        ctx.scatter_dim = scatter_dim
+        ctx.gather_dim = gather_dim
+        ctx.world_size = dist.get_world_size(process_group)
+        return _all_to_all_async(
+            input_, ctx.world_size, process_group, scatter_dim, gather_dim
+        )
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return (
+            _all_to_all_async(
+                grad_output,
+                ctx.world_size,
+                ctx.process_group,
+                ctx.gather_dim,
+                ctx.scatter_dim,
+            ),
+            None,
+            None,
+            None,
+        )
+
+
+
+def asyncalltoall(
+    input_: torch.Tensor,
+    process_group: dist.ProcessGroup,
+    scatter_dim: int = 2,
+    gather_dim: int = 1,
+):
+    return _asyncalltoall.apply(input_, process_group, scatter_dim, gather_dim)
 
 
 def _reduce_scatter(
@@ -23,6 +83,19 @@ def _reduce_scatter(
     return output
 
 
+def _all_gather(
+    input_: torch.Tensor,
+    world_size: int,
+    group: dist.ProcessGroup,
+    scatter_dim: int,
+    gather_dim: int,
+):
+    output_list = [
+        torch.empty_like(input_) for _ in range(world_size)
+    ]
+    dist.all_gather(output_list, input_, group=group)
+    return (torch.cat(output_list, dim=gather_dim).contiguous().div_(world_size))
+    
 class _ReduceScatter(torch.autograd.Function):
     """All-to-all communication.
 
@@ -46,7 +119,7 @@ class _ReduceScatter(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         return (
-            _reduce_scatter(
+            _all_gather(
                 grad_output,
                 ctx.world_size,
                 ctx.process_group,

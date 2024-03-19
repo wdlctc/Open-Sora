@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from colossalai.logging import get_dist_logger
 from colossalai.shardformer.layer._operation import gather_forward_split_backward
 
-from open_sora.utils.comm import all_to_all, async_all_gather_proj_for_two, reduce_scatter
+from open_sora.utils.comm import all_to_all, async_all_gather_proj_for_two, reduce_scatter, asyncalltoall
 
 
 class CrossAttention(nn.Module):
@@ -311,22 +311,17 @@ class FasterSeqParallelCrossAttention(FastSeqParallelCrossAttention):
                 ranks=[0],
             )
             overlap = False
-        self.to_out[0].bias.data.div_(self.seq_parallel_size)
         self.overlap = overlap
 
     def _get_sliced_params(self, proj_layer: nn.Linear):
         bias = bias = proj_layer.bias[self.sequence_parallel_param_slice] if proj_layer.bias is not None else None
         return proj_layer.weight[self.sequence_parallel_param_slice], bias
 
-    def _get_sliced_output_params(self, proj_layer: nn.Linear):
-        return proj_layer.weight[:, self.sequence_parallel_param_slice], proj_layer.bias
-
-    def _outproj(self, x, proj_layer):
+    def _outproj(self, x, slice, proj_layer):
         x = F.linear(
             x,
-            *self._get_sliced_output_params(proj_layer[0])
+            proj_layer[0].weight[:, slice]
         )
-        x = proj_layer[1](x)
         return x
 
     def _proj(self, x: torch.Tensor, proj_layer: nn.Linear):
@@ -391,10 +386,25 @@ class FasterSeqParallelCrossAttention(FastSeqParallelCrossAttention):
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.reshape(bsz, q_len, hidden_size_parallel)
         # [B, S, H/P] -> [B, S/P, H]
-        
-        # if self.seq_parallel_size > 1:
-        #     attn_output = all_to_all(attn_output, self.seq_parallel_group, scatter_dim=1, gather_dim=2)
-        attn_output = self._outproj(attn_output, self.to_out)
-        attn_output = reduce_scatter(attn_output, self.seq_parallel_group, scatter_dim=1, gather_dim=1)
+
+        t = torch.tensor_split(attn_output, self.seq_parallel_size, 1)[self.seq_parallel_rank]
+        if self.seq_parallel_size > 1:
+            attn_output_list = asyncalltoall(attn_output, self.seq_parallel_group, scatter_dim=1, gather_dim=2)
+
+        for i in range(self.seq_parallel_size):
+            index = (self.seq_parallel_rank + i) % self.seq_parallel_size
+            cur_slice = slice(
+                self.hidden_size // self.seq_parallel_size * index,
+                self.hidden_size // self.seq_parallel_size * (index + 1),
+            )
+
+            if i == 0:
+                output_parallel = self._outproj(attn_output_list[index], cur_slice, self.to_out)
+            else:
+                attn_output.handle.wait()
+                output_parallel = output_parallel + self._outproj(attn_output_list[index], cur_slice, self.to_out)
+                # print('second ',output_parallel,attn_output_list[index])
+        attn_output = output_parallel + self.to_out[0].bias
+        attn_output = self.to_out[1](attn_output)
         return attn_output
 
